@@ -101,3 +101,36 @@ func (us *UserService) DeleteUserByEmail(ctx context.Context, req *UserRequestEm
 	}
 	return &Empty{}, nil
 }
+
+func (us *UserService) GetUserPkById(ctx context.Context, userRequest *UserRequestId) (*UserPk, error) {
+	domainUser, err := us.userRepo.GetById(ctx, uint(userRequest.Id))
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch user :%v", err)
+	}
+	grpcUser, err := userToDTOGRPC(domainUser)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert domain user to dto : %v", err)
+	}
+	userPK := &UserPk{
+		Id:        grpcUser.Id,
+		Email:     grpcUser.Email,
+		PublicKey: grpcUser.PublicKey,
+	}
+	return userPK, nil
+}
+func (us *UserService) GetUserPkByEmail(ctx context.Context, userRequest *UserRequestEmail) (*UserPk, error) {
+	domainUser, err := us.userRepo.GetByEmail(ctx, userRequest.Email)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch user :%v", err)
+	}
+	grpcUser, err := userToDTOGRPC(domainUser)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert domain user to dto : %v", err)
+	}
+	userPK := &UserPk{
+		Id:        grpcUser.Id,
+		Email:     grpcUser.Email,
+		PublicKey: grpcUser.PublicKey,
+	}
+	return userPK, nil
+}

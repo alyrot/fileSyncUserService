@@ -35,6 +35,11 @@ message UserRequestCreate {
     bytes  wrapped_master_key = 7;
 }
 
+message UserPk {
+    uint64 id = 1;
+    string email = 2;
+    bytes  public_key = 3;
+}
 
 
 service UserService {
@@ -43,6 +48,8 @@ service UserService {
     rpc CreateUser(UserRequestCreate) returns (User) {}
     rpc DeleteUserById(UserRequestId) returns (Empty) {}
     rpc DeleteUserByEmail(UserRequestEmail) returns (Empty) {}
+    rpc GetUserPkById(UserRequestId) returns (UserPk) {}
+    rpc GetUserPkByEmail(UserRequestEmail) returns (UserPk) {}
 }
 
 
