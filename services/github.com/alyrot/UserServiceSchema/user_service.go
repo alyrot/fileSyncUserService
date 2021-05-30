@@ -1,4 +1,4 @@
-package services
+package UserServiceSchema
 
 import (
 	"UserService/adapters/userRepository"

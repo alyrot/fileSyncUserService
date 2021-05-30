@@ -1,4 +1,2 @@
 #!/bin/bash
-protoc --go_out=. --go_opt=paths=source_relative \
---go-grpc_out=. --go-grpc_opt=paths=source_relative \
-services/userService.proto
+protoc --go_out=./services --go-grpc_out=./services protobufs/UserServiceSchema/userService.proto

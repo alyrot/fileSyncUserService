@@ -2,7 +2,7 @@ package main
 
 import (
 	"UserService/adapters/userRepository"
-	"UserService/services"
+	"UserService/services/github.com/alyrot/UserServiceSchema"
 	"fmt"
 	"google.golang.org/grpc"
 	"gorm.io/driver/sqlite"
@@ -33,7 +33,7 @@ func SetupDB(dsn string) (*gorm.DB, error) {
 func SetupGRPCServer(db *gorm.DB) *grpc.Server {
 	userRepo := &userRepository.DefaultRepo{DB: db}
 	grpcServer := grpc.NewServer()
-	services.RegisterUserServiceServer(grpcServer, services.NewUserService(userRepo))
+	UserServiceSchema.RegisterUserServiceServer(grpcServer, UserServiceSchema.NewUserService(userRepo))
 	return grpcServer
 }
 

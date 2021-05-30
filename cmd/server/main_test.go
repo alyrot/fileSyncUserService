@@ -2,7 +2,7 @@ package main
 
 import (
 	"UserService/domain"
-	"UserService/services"
+	"UserService/services/github.com/alyrot/UserServiceSchema"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -18,7 +18,7 @@ import (
 )
 
 //setupTestENV creates a client connected to an in memory service using an inmemory db
-func setupTestENV(ctx context.Context) (services.UserServiceClient, error) {
+func setupTestENV(ctx context.Context) (UserServiceSchema.UserServiceClient, error) {
 	//this will create an in memory sqlite db
 	dsn := "file::memory:?cache=shared"
 	db, err := SetupDB(dsn)
@@ -47,11 +47,11 @@ func setupTestENV(ctx context.Context) (services.UserServiceClient, error) {
 		},
 	), grpc.WithInsecure())
 
-	client := services.NewUserServiceClient(conn)
+	client := UserServiceSchema.NewUserServiceClient(conn)
 	return client, err
 }
 
-func checkUserNoID(want *domain.User, got *services.User) error {
+func checkUserNoID(want *domain.User, got *UserServiceSchema.User) error {
 	if want.Email != got.Email {
 		return fmt.Errorf("want email %v got %v", want.Email, got.Email)
 	}
@@ -112,7 +112,7 @@ func TestUserCreation(t *testing.T) {
 	}
 
 	//create wantUserNoID and check values
-	createReq := &services.UserRequestCreate{
+	createReq := &UserServiceSchema.UserRequestCreate{
 		Email:             wantEmail,
 		PublicKey:         pkPKIXBytes,
 		WrappedPrivateKey: wantWrappedPrivateKey,
@@ -128,7 +128,7 @@ func TestUserCreation(t *testing.T) {
 	}
 
 	//check if the getters return the created user
-	gotGRPCUserByEmail, err := client.GetUserByEmail(ctx, &services.UserRequestEmail{Email: wantEmail})
+	gotGRPCUserByEmail, err := client.GetUserByEmail(ctx, &UserServiceSchema.UserRequestEmail{Email: wantEmail})
 	if err != nil {
 		t.Fatalf("unxepected error fetching wantUserNoID by email : %v", err)
 	}
@@ -136,7 +136,7 @@ func TestUserCreation(t *testing.T) {
 		t.Fatalf("user returned by create does not match user returend by get email!")
 	}
 
-	gotGRPCUserByID, err := client.GetUserById(ctx, &services.UserRequestId{Id: gotGRPCUser.Id})
+	gotGRPCUserByID, err := client.GetUserById(ctx, &UserServiceSchema.UserRequestId{Id: gotGRPCUser.Id})
 	if err != nil {
 		t.Fatalf("unxepected error fetching wantUserNoID by email : %v", err)
 	}
@@ -145,12 +145,12 @@ func TestUserCreation(t *testing.T) {
 	}
 
 	//check if deleting works
-	_, err = client.DeleteUserById(ctx, &services.UserRequestId{Id: gotGRPCUser.Id})
+	_, err = client.DeleteUserById(ctx, &UserServiceSchema.UserRequestId{Id: gotGRPCUser.Id})
 	if err != nil {
 		t.Fatalf("failed to delete user by id :%v ", err)
 	}
 	//check that getting the deleted user returns error
-	gotGRPCUserByID, err = client.GetUserById(ctx, &services.UserRequestId{Id: gotGRPCUser.Id})
+	gotGRPCUserByID, err = client.GetUserById(ctx, &UserServiceSchema.UserRequestId{Id: gotGRPCUser.Id})
 	if err == nil {
 		t.Fatalf("expected error getting deleted user, got none")
 	}
@@ -161,12 +161,12 @@ func TestUserCreation(t *testing.T) {
 		t.Fatalf("CreateUser has unexpected errror :%v", err)
 	}
 	//check if deleting works
-	_, err = client.DeleteUserByEmail(ctx, &services.UserRequestEmail{Email: wantEmail})
+	_, err = client.DeleteUserByEmail(ctx, &UserServiceSchema.UserRequestEmail{Email: wantEmail})
 	if err != nil {
 		t.Fatalf("failed to delete user by id :%v ", err)
 	}
 	//check that getting the deleted user returns error
-	gotGRPCUserByID, err = client.GetUserById(ctx, &services.UserRequestId{Id: gotGRPCUser.Id})
+	gotGRPCUserByID, err = client.GetUserById(ctx, &UserServiceSchema.UserRequestId{Id: gotGRPCUser.Id})
 	if err == nil {
 		t.Fatalf("expected error getting deleted user, got none")
 	}
