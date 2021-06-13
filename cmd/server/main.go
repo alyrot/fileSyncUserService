@@ -2,8 +2,10 @@ package main
 
 import (
 	"UserService/adapters/userRepository"
-	"UserService/services/github.com/alyrot/UserServiceSchema"
+	"UserService/protobufs/UserServiceSchema"
+	"UserService/services/UserService"
 	"fmt"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"google.golang.org/grpc"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -18,7 +20,7 @@ const (
 	EnvListenAddr string = "LISTEN"
 )
 
-func SetupDB(dsn string) (*gorm.DB, error) {
+func SetupGormDB(dsn string) (*gorm.DB, error) {
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect database: %v", err)
@@ -30,28 +32,50 @@ func SetupDB(dsn string) (*gorm.DB, error) {
 	return db, nil
 }
 
-func SetupGRPCServer(db *gorm.DB) *grpc.Server {
-	userRepo := &userRepository.DefaultRepo{DB: db}
+func SetupGRPCServer(userRepo userRepository.UserRepo) *grpc.Server {
 	grpcServer := grpc.NewServer()
-	UserServiceSchema.RegisterUserServiceServer(grpcServer, UserServiceSchema.NewUserService(userRepo))
+	UserServiceSchema.RegisterUserServiceServer(grpcServer, UserService.NewUserService(userRepo))
 	return grpcServer
 }
 
 func main() {
+	//setup database
 	dsn := os.Getenv(EnvDSN)
 	if dsn == "" {
 		log.Fatalf("Specify %v envvar!", EnvDSN)
 	}
-	db, err := SetupDB(dsn)
-	if err != nil {
-		log.Fatalf("failed to setup db : %v", err)
+	var userRepo userRepository.UserRepo
+	if dsn == "dynamo" {
+		sess := session.Must(session.NewSession())
+		var err error
+		userRepo, err = userRepository.NewAwsDynamoUserRepo(sess)
+		if err != nil {
+			log.Fatalf("Failed to setup db : %v", err)
+		}
+	} else if dsn == "dynamo-local" {
+		log.Printf("Setting up dynamo-local db")
+		sess := session.Must(session.NewSession())
+		var err error
+		userRepo, err = userRepository.NewAwsLocalDynamoUserRepo(sess)
+		if err != nil {
+			log.Fatalf("Failed to setup db : %v", err)
+		}
+	} else {
+		db, err := SetupGormDB(dsn)
+		if err != nil {
+			log.Fatalf("failed to setup db : %v", err)
+		}
+		userRepo = &userRepository.DefaultRepo{DB: db}
 	}
 
+	//start grpc server
 	lis, err := net.Listen("tcp", os.Getenv(EnvListenAddr))
 	if err != nil {
 		log.Fatalf("failed to listen on %v : %v", os.Getenv(EnvListenAddr), err)
 	}
-	grpcServer := SetupGRPCServer(db)
+
+	grpcServer := SetupGRPCServer(userRepo)
+	log.Printf("Starting GRPC server")
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("grpcServer termianted with :%v", err)
 	}

@@ -1,32 +1,31 @@
-package UserServiceSchema
+package UserService
 
 import (
 	"UserService/adapters/userRepository"
 	"UserService/domain"
+	"UserService/protobufs/UserServiceSchema"
 	"context"
-	"crypto/ecdsa"
 	"crypto/x509"
 	"fmt"
 )
 
-func NewUserService(userRepo userRepository.Repo) *UserService {
+func NewUserService(userRepo userRepository.UserRepo) *UserService {
 	return &UserService{
 		userRepo: userRepo,
 	}
 }
 
 type UserService struct {
-	UnimplementedUserServiceServer
-	userRepo userRepository.Repo
+	UserServiceSchema.UnimplementedUserServiceServer
+	userRepo userRepository.UserRepo
 }
 
-func userToDTOGRPC(u *domain.User) (*User, error) {
-	pkPKIX, err := x509.MarshalPKIXPublicKey(&u.PublicKey)
+func userToDTOGRPC(u *domain.User) (*UserServiceSchema.User, error) {
+	pkPKIX, err := x509.MarshalPKIXPublicKey(u.PublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert .PublicKey field : %v", err)
 	}
-	grpcUser := &User{
-		Id:                uint64(u.ID),
+	grpcUser := &UserServiceSchema.User{
 		CreatedAtUnix:     u.CreatedAt.Unix(),
 		UpdatedAtUnix:     u.UpdatedAt.Unix(),
 		Email:             u.Email,
@@ -37,8 +36,8 @@ func userToDTOGRPC(u *domain.User) (*User, error) {
 	return grpcUser, nil
 }
 
-func (us *UserService) GetUserById(ctx context.Context, userRequest *UserRequestId) (*User, error) {
-	domainUser, err := us.userRepo.GetById(ctx, uint(userRequest.Id))
+func (us *UserService) GetUserByPk(ctx context.Context, userRequest *UserServiceSchema.UserRequestPk) (*UserServiceSchema.User, error) {
+	domainUser, err := us.userRepo.GetByPk(ctx, userRequest.PublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch user :%v", err)
 	}
@@ -49,7 +48,7 @@ func (us *UserService) GetUserById(ctx context.Context, userRequest *UserRequest
 	return grpcUser, nil
 
 }
-func (us *UserService) GetUserByEmail(ctx context.Context, userRequest *UserRequestEmail) (*User, error) {
+func (us *UserService) GetUserByEmail(ctx context.Context, userRequest *UserServiceSchema.UserRequestEmail) (*UserServiceSchema.User, error) {
 	domainUser, err := us.userRepo.GetByEmail(ctx, userRequest.Email)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch user :%v", err)
@@ -61,26 +60,21 @@ func (us *UserService) GetUserByEmail(ctx context.Context, userRequest *UserRequ
 	return grpcUser, nil
 }
 
-func (us *UserService) CreateUser(ctx context.Context, req *UserRequestCreate) (*User, error) {
-
+func (us *UserService) CreateUser(ctx context.Context, req *UserServiceSchema.UserRequestCreate) (*UserServiceSchema.User, error) {
 	genericPK, err := x509.ParsePKIXPublicKey(req.PublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse public key : %v", err)
 	}
-	pk, ok := genericPK.(*ecdsa.PublicKey)
-	if !ok {
-		return nil, fmt.Errorf("public key has to be ecdsa")
-	}
 
 	domainUser := &domain.User{
 		Email:             req.Email,
-		PublicKey:         *pk,
+		PublicKey:         genericPK,
 		WrappedPrivateKey: req.WrappedPrivateKey,
 		WrappedMasterKey:  req.WrappedMasterKey,
 	}
 	domainUser, err = us.userRepo.Create(ctx, domainUser)
 	if err != nil {
-		return nil, fmt.Errorf("failed to crate user :%v", err)
+		return nil, fmt.Errorf("failed to create user :%v", err)
 	}
 	grpcUser, err := userToDTOGRPC(domainUser)
 	if err != nil {
@@ -89,36 +83,14 @@ func (us *UserService) CreateUser(ctx context.Context, req *UserRequestCreate) (
 	return grpcUser, nil
 }
 
-func (us *UserService) DeleteUserById(ctx context.Context, req *UserRequestId) (*Empty, error) {
-	if err := us.userRepo.DeleteById(ctx, uint(req.Id)); err != nil {
-		return nil, err
-	}
-	return &Empty{}, nil
-}
-func (us *UserService) DeleteUserByEmail(ctx context.Context, req *UserRequestEmail) (*Empty, error) {
+func (us *UserService) DeleteUserByEmail(ctx context.Context, req *UserServiceSchema.UserRequestEmail) (*UserServiceSchema.Empty, error) {
 	if err := us.userRepo.DeleteByEmail(ctx, req.Email); err != nil {
 		return nil, err
 	}
-	return &Empty{}, nil
+	return &UserServiceSchema.Empty{}, nil
 }
 
-func (us *UserService) GetUserPkById(ctx context.Context, userRequest *UserRequestId) (*UserPk, error) {
-	domainUser, err := us.userRepo.GetById(ctx, uint(userRequest.Id))
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch user :%v", err)
-	}
-	grpcUser, err := userToDTOGRPC(domainUser)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert domain user to dto : %v", err)
-	}
-	userPK := &UserPk{
-		Id:        grpcUser.Id,
-		Email:     grpcUser.Email,
-		PublicKey: grpcUser.PublicKey,
-	}
-	return userPK, nil
-}
-func (us *UserService) GetUserPkByEmail(ctx context.Context, userRequest *UserRequestEmail) (*UserPk, error) {
+func (us *UserService) GetUserPkByEmail(ctx context.Context, userRequest *UserServiceSchema.UserRequestEmail) (*UserServiceSchema.UserPk, error) {
 	domainUser, err := us.userRepo.GetByEmail(ctx, userRequest.Email)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch user :%v", err)
@@ -127,8 +99,7 @@ func (us *UserService) GetUserPkByEmail(ctx context.Context, userRequest *UserRe
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert domain user to dto : %v", err)
 	}
-	userPK := &UserPk{
-		Id:        grpcUser.Id,
+	userPK := &UserServiceSchema.UserPk{
 		Email:     grpcUser.Email,
 		PublicKey: grpcUser.PublicKey,
 	}

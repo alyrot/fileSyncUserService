@@ -1,21 +1,22 @@
 package domain
 
 import (
-	"crypto/ecdsa"
+	"crypto"
 	"fmt"
-	"gorm.io/gorm"
+	"time"
 )
 
 type User struct {
-	gorm.Model
 	Email             string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 	Name              string
-	PublicKey         ecdsa.PublicKey
+	PublicKey         crypto.PublicKey
 	WrappedPrivateKey []byte
 	WrappedMasterKey  []byte
 }
 
 func (u User) String() string {
-	return fmt.Sprintf("User{ID: %v, CreatedAt %v, Email: %v, Name: %v, PublicKey: %v, WrappedPrivateKey: %v, WrappedMasterKey: %v}",
-		u.ID, u.CreatedAt, u.Email, u.Name, u.PublicKey, u.WrappedMasterKey, u.WrappedMasterKey)
+	return fmt.Sprintf("User{CreatedAt %v, Email: %v, Name: %v, PublicKey: %v, WrappedPrivateKey: %v, WrappedMasterKey: %v}",
+		u.CreatedAt, u.Email, u.Name, u.PublicKey, u.WrappedMasterKey, u.WrappedMasterKey)
 }

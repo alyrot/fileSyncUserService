@@ -1,8 +1,9 @@
 package main
 
 import (
+	"UserService/adapters/userRepository"
 	"UserService/domain"
-	"UserService/services/github.com/alyrot/UserServiceSchema"
+	"UserService/protobufs/UserServiceSchema"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -10,26 +11,58 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
+	"log"
 	"net"
 	"reflect"
 	"testing"
 )
 
+type dbImpl string
+
+func (d dbImpl) String() string {
+	return string(d)
+}
+
+const gormDbImpl = dbImpl("gorm")
+const dynamoDbImpl = dbImpl("dynamo")
+
 //setupTestENV creates a client connected to an in memory service using an inmemory db
-func setupTestENV(ctx context.Context) (UserServiceSchema.UserServiceClient, error) {
-	//this will create an in memory sqlite db
-	dsn := "file::memory:?cache=shared"
-	db, err := SetupDB(dsn)
-	if err != nil {
-		return nil, err
+func setupTestENV(ctx context.Context, backend dbImpl) (UserServiceSchema.UserServiceClient, error) {
+	var userRepo userRepository.UserRepo
+	switch backend {
+	case gormDbImpl:
+		//this will create an in memory sqlite db
+		dsn := "file::memory:?cache=shared"
+		db, err := SetupGormDB(dsn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create %v backend : %v", backend, err)
+		}
+		userRepo = &userRepository.DefaultRepo{DB: db}
+	case dynamoDbImpl:
+		log.Printf("Testing dynamo db backend, make sure docker container is running!")
+		sess := session.Must(session.NewSession(&aws.Config{
+			Credentials: credentials.NewStaticCredentials("test-id", "test-secret", "test-token"),
+			Region:      aws.String("us-west-2"),
+		}))
+		var err error
+		userRepo, err = userRepository.NewAwsLocalDynamoUserRepo(sess)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create %v backend : %v", backend, err)
+		}
+	default:
+		return nil, fmt.Errorf("unknown db implementation %v", backend)
+
 	}
 
 	//create server
 	bufferSize := 1024 * 1024
 	lis := bufconn.Listen(bufferSize)
-	server := SetupGRPCServer(db)
+	server := SetupGRPCServer(userRepo)
 	go func() {
 		if err := server.Serve(lis); err != nil {
 			panic(err)
@@ -48,18 +81,19 @@ func setupTestENV(ctx context.Context) (UserServiceSchema.UserServiceClient, err
 	), grpc.WithInsecure())
 
 	client := UserServiceSchema.NewUserServiceClient(conn)
-	return client, err
+	return client, nil
 }
 
 func checkUserNoID(want *domain.User, got *UserServiceSchema.User) error {
 	if want.Email != got.Email {
 		return fmt.Errorf("want email %v got %v", want.Email, got.Email)
 	}
-	parsedPK, err := x509.ParsePKIXPublicKey(got.PublicKey)
+
+	wantPkBytes, err := x509.MarshalPKIXPublicKey(want.PublicKey)
 	if err != nil {
-		return fmt.Errorf("failed to parse public key : %v", err)
+		return fmt.Errorf("failed to parse wanted public key to bytes : %v", err)
 	}
-	if !want.PublicKey.Equal(parsedPK) {
+	if !reflect.DeepEqual(wantPkBytes, got.PublicKey) {
 		return fmt.Errorf("public keys do not match")
 	}
 	if !reflect.DeepEqual(want.WrappedPrivateKey, got.WrappedPrivateKey) {
@@ -71,15 +105,7 @@ func checkUserNoID(want *domain.User, got *UserServiceSchema.User) error {
 	return nil
 }
 
-func TestUserCreation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	client, err := setupTestENV(ctx)
-	if err != nil {
-		t.Fatalf("failed to setup env : %v", err)
-	}
-
+func testUserCreationWithBackend(ctx context.Context, t *testing.T, client UserServiceSchema.UserServiceClient) {
 	//setup data for test wantUserNoID
 	sk, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -106,7 +132,7 @@ func TestUserCreation(t *testing.T) {
 	wantUserNoID := &domain.User{
 		Email:             wantEmail,
 		Name:              wantName,
-		PublicKey:         *ecdsaPK,
+		PublicKey:         ecdsaPK,
 		WrappedPrivateKey: wantWrappedPrivateKey,
 		WrappedMasterKey:  wantWrapperMasterKey,
 	}
@@ -136,39 +162,32 @@ func TestUserCreation(t *testing.T) {
 		t.Fatalf("user returned by create does not match user returend by get email!")
 	}
 
-	gotGRPCUserByID, err := client.GetUserById(ctx, &UserServiceSchema.UserRequestId{Id: gotGRPCUser.Id})
-	if err != nil {
-		t.Fatalf("unxepected error fetching wantUserNoID by email : %v", err)
-	}
-	if !reflect.DeepEqual(gotGRPCUser, gotGRPCUserByID) {
-		t.Fatalf("user returned by create does not match user returend by get id!")
-	}
-
-	//check if deleting works
-	_, err = client.DeleteUserById(ctx, &UserServiceSchema.UserRequestId{Id: gotGRPCUser.Id})
-	if err != nil {
-		t.Fatalf("failed to delete user by id :%v ", err)
-	}
-	//check that getting the deleted user returns error
-	gotGRPCUserByID, err = client.GetUserById(ctx, &UserServiceSchema.UserRequestId{Id: gotGRPCUser.Id})
-	if err == nil {
-		t.Fatalf("expected error getting deleted user, got none")
-	}
-
-	//create new user for checking delete by eamil
-	gotGRPCUser, err = client.CreateUser(ctx, createReq)
-	if err != nil {
-		t.Fatalf("CreateUser has unexpected errror :%v", err)
-	}
 	//check if deleting works
 	_, err = client.DeleteUserByEmail(ctx, &UserServiceSchema.UserRequestEmail{Email: wantEmail})
 	if err != nil {
 		t.Fatalf("failed to delete user by id :%v ", err)
 	}
 	//check that getting the deleted user returns error
-	gotGRPCUserByID, err = client.GetUserById(ctx, &UserServiceSchema.UserRequestId{Id: gotGRPCUser.Id})
+	gotGRPCUserByEmail, err = client.GetUserByEmail(ctx, &UserServiceSchema.UserRequestEmail{Email: gotGRPCUser.Email})
 	if err == nil {
 		t.Fatalf("expected error getting deleted user, got none")
+	}
+}
+
+func TestUserCreation(t *testing.T) {
+	backends := []dbImpl{dynamoDbImpl, gormDbImpl}
+	for _, v := range backends {
+		t.Run(fmt.Sprintf("%v", v), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			client, err := setupTestENV(ctx, v)
+			if err != nil {
+				t.Fatalf("failed to setup env : %v", err)
+			}
+
+			testUserCreationWithBackend(ctx, t, client)
+
+		})
 	}
 
 }
